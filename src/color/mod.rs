@@ -1,3 +1,5 @@
+use crate::bitstream::BitWrite;
+
 pub mod operator;
 
 #[derive(Clone, Copy, Debug)]
@@ -15,5 +17,13 @@ impl Color {
         let db = self.b as i32 - other.b as i32;
 
         (dr * dr + dg * dg + db * db) as u32
+    }
+}
+
+impl BitWrite for Color {
+    fn bit_write_msb(&self, writer: &mut crate::bitstream::BitWriter) {
+        writer.write_msb(self.r as u32, 8);
+        writer.write_msb(self.g as u32, 8);
+        writer.write_msb(self.b as u32, 8);
     }
 }
