@@ -7,7 +7,7 @@ mod code;
 mod color;
 
 fn main() {
-    let img = image::open("sample.jpg").expect("Failed to open sample2.jpg");
+    let img = image::open("sample.jpg").expect("Failed to open sample.jpg");
     let rgb_img = img.to_rgb8();
     let (width, height) = rgb_img.dimensions();
 
