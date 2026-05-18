@@ -23,6 +23,14 @@ fn main() {
     }
 
     let encoded = code::encode(&source_pixels);
+
+    let original_size = source_pixels.len() * 3;
+    let compressed_size = encoded.len();
+    let ratio = ((compressed_size as f64) / (original_size as f64)) * 100.0;
+    println!("raw length: {}", source_pixels.len() * 3);
+    println!("encoded length: {}", encoded.len());
+    println!("compression ratio: {:.2}%", ratio);
+
     let decoded = code::decode(&encoded);
 
     let mut output = RgbImage::new(width, height);
