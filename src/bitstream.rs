@@ -73,13 +73,16 @@ impl<'a> BitReader<'a> {
         }
     }
 
-    pub fn read_msb(&mut self, size: usize) -> u32 {
+    pub fn read_msb(&mut self, size: usize) -> Option<u32> {
         let mut remaining = size;
         let mut result: u32 = 0;
         while remaining > 0 {
             if self.bit_rem == 0 {
                 self.byte_idx += 1;
                 self.bit_rem = 8;
+            }
+            if self.byte_idx >= self.buffer.len() {
+                return None;
             }
             let take = remaining.min(self.bit_rem as usize);
             let shift = self.bit_rem as usize - take;
@@ -88,6 +91,10 @@ impl<'a> BitReader<'a> {
             self.bit_rem -= take as u8;
             remaining -= take;
         }
-        result
+        Some(result)
     }
+}
+
+pub trait BitRead {
+    fn bit_read_msb(reader: &mut BitReader) -> Self;
 }

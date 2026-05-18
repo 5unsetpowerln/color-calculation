@@ -1,4 +1,4 @@
-use crate::bitstream::BitWrite;
+use crate::bitstream::{BitRead, BitWrite};
 
 pub mod operator;
 
@@ -25,5 +25,14 @@ impl BitWrite for Color {
         writer.write_msb(self.r as u32, 8);
         writer.write_msb(self.g as u32, 8);
         writer.write_msb(self.b as u32, 8);
+    }
+}
+
+impl BitRead for Color {
+    fn bit_read_msb(reader: &mut crate::bitstream::BitReader) -> Self {
+        let r = reader.read_msb(8).unwrap() as u8;
+        let g = reader.read_msb(8).unwrap() as u8;
+        let b = reader.read_msb(8).unwrap() as u8;
+        Self { r, g, b }
     }
 }

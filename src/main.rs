@@ -1,11 +1,11 @@
 use crate::{
-    bitstream::{BitReader, BitWrite, BitWriter},
+    bitstream::{BitRead, BitReader, BitWrite, BitWriter},
     color::{Color, operator::OPERATORS},
 };
 use image::{Rgb, RgbImage};
 
 mod bitstream;
-mod canonical_huffman;
+mod chuffman;
 mod color;
 
 fn main() {
@@ -74,10 +74,14 @@ fn main() {
 
     println!("huffman encoding");
     let (encoded, length_table, index_width, length_width, index_count) =
-        canonical_huffman::encode(&index_list, &freq_table, OPERATORS.len());
+        chuffman::encode(&index_list, &freq_table, OPERATORS.len());
     println!("done");
 
     // ヘッダー
+    // ピクセル数 (8バイト)
+    let pixel_count = encoded.len();
+    bit_writer.write_msb((pixel_count & 0xffffffff) as u32, 32);
+    bit_writer.write_msb((pixel_count >> 32) as u32, 32);
     // indexの最大bit数 (4バイト)
     // lengthの最大bit数 (4バイト)
     // lengthテーブルの長さ (4バイト)
@@ -109,75 +113,47 @@ fn main() {
     let mut bit_reader = bit_stream.reader();
 
     // ヘッダ
-    let recv_index_width = bit_reader.read_msb(32);
-    let recv_length_width = bit_reader.read_msb(32);
-    let recv_index_count = bit_reader.read_msb(32) as usize;
+    let recv_pixel_count = bit_reader.read_msb(32).unwrap() as usize
+        | (bit_reader.read_msb(32).unwrap() as usize) << 32;
+    let recv_index_width = bit_reader.read_msb(32).unwrap();
+    let recv_length_width = bit_reader.read_msb(32).unwrap();
+    let recv_index_count = bit_reader.read_msb(32).unwrap() as usize;
+    assert_eq!(pixel_count, recv_pixel_count);
     assert_eq!(index_width, recv_index_width);
     assert_eq!(length_width, recv_length_width);
     assert_eq!(index_count, recv_index_count);
     println!("index_width: {}", recv_index_width);
     println!("length_width: {}", recv_length_width);
     println!("index_count: {}", recv_index_count);
-    let mut recv_length_table = vec![0; recv_index_count as usize];
+    let mut recv_length_table = vec![0; OPERATORS.len()];
     for _ in 0..recv_index_count {
-        let index = bit_reader.read_msb(index_width as usize);
-        let length = bit_reader.read_msb(length_width as usize);
+        let index = bit_reader.read_msb(index_width as usize).unwrap();
+        let length = bit_reader.read_msb(length_width as usize).unwrap();
         recv_length_table[index as usize] = length as usize;
     }
     assert_eq!(length_table, recv_length_table);
     println!("length_table: {:?}", length_table);
+    // データ本体
+    // 最初の2ピクセル
+    let mut colors = vec![
+        Color::bit_read_msb(&mut bit_reader),
+        Color::bit_read_msb(&mut bit_reader),
+    ];
+    let decoded = chuffman::decode(&mut bit_reader, &recv_length_table, pixel_count);
+    for (index, operator_index) in decoded.iter().enumerate() {
+        let color = (OPERATORS[*operator_index])(colors[index + 1], colors[index]);
+        colors.push(color);
+    }
 
-    // let mut pairs: Vec<(usize, usize, usize)> = freq_table
-    //     .iter()
-    //     .enumerate()
-    //     .map(|(op_index, freq)| (op_index, *freq, length_table[op_index]))
-    //     .collect();
-    // pairs.sort_by(|a, b| b.1.cmp(&a.1));
-    // let mut total_bits = 0usize;
-    // let mut total_count = 0usize;
-    // for (rank, (op_index, freq, length)) in pairs.iter().enumerate() {
-    //     println!("{}, {}, {}, {}", rank, op_index, freq, length);
-    //     total_bits += freq * length;
-    //     total_count += freq;
-    // }
-    // let avg_bits = total_bits as f64 / total_count as f64;
-    // println!(
-    //     "average code length: {:.4} bits/symbol  ({} bits / {} symbols)",
-    //     avg_bits, total_bits, total_count
-    // );
+    let mut output = RgbImage::new(width, height);
+    for (i, color) in colors.iter().enumerate() {
+        let x = (i as u32) % width;
+        let y = (i as u32) / width;
+        output.put_pixel(x, y, Rgb([color.r, color.g, color.b]));
+    }
 
-    canonical_huffman::decode(&mut bit_reader, &recv_length_table);
+    output.save("output.png").unwrap();
 
-    // 2:
-    //  00
-    //  01
-    //  10
-    // 3:
-    //  110
-    // 4:
-    //  1110
-
-    // 01 == 00 + 1
-    // 10 == 01 + 1
-
-    // freq_table.sort();
-    //
-    // freq_table.reverse();
-    // for (index, freq) in freq_table.iter().enumerate() {
-    //     let length = length_table[index];
-
-    //     println!("{}, {}, {}", index, freq, length);
-    // }
-
-    // let mut output = RgbImage::new(width, height);
-    // for (i, color) in results.iter().enumerate() {
-    //     let x = (i as u32) % width;
-    //     let y = (i as u32) / width;
-    //     output.put_pixel(x, y, Rgb([color.r, color.g, color.b]));
-    // }
-
-    // output.save("output.png").unwrap();
-
-    // println!("saved: output.png");
+    println!("saved: output.png");
     // println!("Total operators transmitted: {}", index_list.len());
 }

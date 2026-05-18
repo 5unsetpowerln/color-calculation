@@ -221,7 +221,7 @@ pub fn encode(
 struct DecodeHelperTables {
     pub length_first_code_table: Vec<u32>,
     pub length_count_table: Vec<usize>,
-    pub length_first_index_table: Vec<usize>,
+    pub length_first_position_in_sorted_index_list_table: Vec<usize>,
     pub sorted_index_list: Vec<usize>,
 }
 
@@ -251,47 +251,92 @@ fn create_decode_helper_tables(index_length_table: &[usize]) -> DecodeHelperTabl
 
     let sorted_index_list = index_length_pairs
         .iter()
+        .skip_while(|(_, length)| *length == 0)
         .map(|(index, _)| *index)
         .collect::<Vec<usize>>();
 
     let max_length = index_length_pairs.last().unwrap().1;
 
-    // 各lengthの最初のindex-lengthペアのリストを取得する
-    let mut length_first_index_table = vec![0; max_length];
-    // let mut first_index_length_list = vec![];
+    // 各lengthのブロックが sorted_index_list の何番目から始まるかのテーブル
+    let mut length_first_position_in_sorted_index_list_table = vec![0; max_length + 1];
     let mut prev_length = 0;
-    for (index, length) in index_length_pairs.iter() {
-        if prev_length != *length {
-            length_first_index_table[*length] = *index;
-        } else {
-            continue;
+    for (pos, &op_idx) in sorted_index_list.iter().enumerate() {
+        let length = index_length_table[op_idx];
+        if prev_length != length {
+            length_first_position_in_sorted_index_list_table[length] = pos;
+            prev_length = length;
         }
-
-        prev_length = *length;
     }
 
-    let code_table = create_code_table(index_length_table);
+    let index_code_table = create_code_table(index_length_table);
 
-    // 各lengthと対応する最初のcodeのテーブルを作成する
-    let mut length_first_code_table = vec![0; max_length];
-    for (length, index) in length_first_index_table.iter().enumerate() {
-        length_first_code_table[length] = code_table[*index];
+    // 各lengthに対応する最初のcodeのテーブル
+    let mut length_first_code_table = vec![0u32; max_length + 1];
+    let mut prev_length = 0;
+    for &op_idx in sorted_index_list.iter() {
+        let length = index_length_table[op_idx];
+        if prev_length != length {
+            length_first_code_table[length] = index_code_table[op_idx];
+            prev_length = length;
+        }
     }
 
-    // 各lengthに対応するindexがいくつ存在するかを表すテーブルを作成する
-    let mut length_count_table = vec![0; max_length];
-    for (length, _) in length_first_index_table.iter().enumerate() {
+    // 各lengthに対応するindexがいくつ存在するかのテーブル
+    let mut length_count_table = vec![0; max_length + 1];
+    for &length in index_length_table.iter() {
         length_count_table[length] += 1;
     }
 
     DecodeHelperTables {
         length_first_code_table,
         length_count_table,
-        length_first_index_table,
+        length_first_position_in_sorted_index_list_table,
         sorted_index_list,
     }
 }
 
-pub fn decode(reader: &mut BitReader, index_length_table: &[usize]) {
+pub fn decode(
+    reader: &mut BitReader,
+    index_length_table: &[usize],
+    pixel_count: usize,
+) -> Vec<usize> {
+    let mut decoded = Vec::new();
     let helper_tables = create_decode_helper_tables(index_length_table);
+    let max_length = helper_tables.length_count_table.len() - 1;
+
+    let mut value = 0;
+    let mut length = 0;
+
+    while let Some(bit) = reader.read_msb(1) {
+        value = (value << 1) + bit;
+        length += 1;
+
+        if length > max_length {
+            break;
+        }
+
+        if decoded.len() >= pixel_count {
+            break;
+        }
+
+        // 現在のvalueが符号として完結しているか調べる
+        // - そもそも現在のlengthに対応する符号が存在するかどうかを判定する
+        // - lengthに対応する符号バリエーションに現在のvalueが収まっているかどうかを判定する
+        if helper_tables.length_count_table[length] > 0 {
+            // valueの現在のlengthに対応する符号ブロック内におけるオフセット
+            let offset = (value - helper_tables.length_first_code_table[length]) as usize;
+
+            if offset < helper_tables.length_count_table[length]
+                && value >= helper_tables.length_first_code_table[length]
+            {
+                let base = helper_tables.length_first_position_in_sorted_index_list_table[length];
+                let index = helper_tables.sorted_index_list[base + offset];
+                decoded.push(index);
+                value = 0;
+                length = 0;
+            }
+        }
+    }
+
+    decoded
 }
