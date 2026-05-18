@@ -1,11 +1,9 @@
-use crate::{
-    bitstream::{BitRead, BitReader, BitWrite, BitWriter},
-    color::{Color, operator::OPERATORS},
-};
+use crate::color::Color;
 use image::{Rgb, RgbImage};
 
 mod bitstream;
 mod chuffman;
+mod code;
 mod color;
 
 fn main() {
@@ -24,136 +22,16 @@ fn main() {
         return;
     }
 
-    // アルゴリズム適応済みの画像
-    let mut results: Vec<Color> = Vec::new();
-
-    // 送信データ
-    let mut index_list: Vec<usize> = Vec::new();
-
-    // 実際に送信するストリーム
-    let mut bit_writer = BitWriter::new();
-
-    // 最初の2px分は送信するしかない
-    if source_pixels.len() > 0 {
-        results.push(source_pixels[0]);
-    }
-    if source_pixels.len() > 1 {
-        results.push(source_pixels[1]);
-    }
-
-    // 頻度表
-    let mut freq_table = vec![0; OPERATORS.len()];
-
-    for index in 2..source_pixels.len() {
-        let target = source_pixels[index];
-
-        let prev_1 = results[index - 1];
-        let prev_2 = results[index - 2];
-
-        let mut best_op_index = 0;
-        let mut best_color = OPERATORS[0](prev_1, prev_2);
-        let mut best_score = target.distance(&best_color);
-
-        for op_idx in 1..OPERATORS.len() {
-            let predicted = OPERATORS[op_idx](prev_1, prev_2);
-            let score = target.distance(&predicted);
-
-            if score < best_score {
-                best_score = score;
-                best_color = predicted;
-                best_op_index = op_idx;
-            }
-        }
-
-        index_list.push(best_op_index);
-
-        freq_table[best_op_index] += 1;
-
-        results.push(best_color);
-    }
-
-    println!("huffman encoding");
-    let (encoded, length_table, index_width, length_width, index_count) =
-        chuffman::encode(&index_list, &freq_table, OPERATORS.len());
-    println!("done");
-
-    // ヘッダー
-    // ピクセル数 (8バイト)
-    let pixel_count = encoded.len();
-    bit_writer.write_msb((pixel_count & 0xffffffff) as u32, 32);
-    bit_writer.write_msb((pixel_count >> 32) as u32, 32);
-    // indexの最大bit数 (4バイト)
-    // lengthの最大bit数 (4バイト)
-    // lengthテーブルの長さ (4バイト)
-    bit_writer.write_msb(index_width, 32);
-    bit_writer.write_msb(length_width, 32);
-    bit_writer.write_msb(index_count as u32, 32);
-    // index:length (indexの最大bit数 + lengthの最大bit数) のテーブル
-    for (index, length) in length_table.iter().enumerate() {
-        if *length == 0 {
-            continue;
-        }
-
-        bit_writer.write_msb(index as u32, index_width as usize);
-        bit_writer.write_msb(*length as u32, length_width as usize);
-    }
-
-    // データ本体
-    // 最初の2ピクセル
-    source_pixels[0].bit_write_msb(&mut bit_writer);
-    source_pixels[1].bit_write_msb(&mut bit_writer);
-    for (code, length) in encoded {
-        bit_writer.write_msb(code, length);
-    }
-
-    // 実際に送信されるデータ
-    let bit_stream = bit_writer.to_stream();
-
-    // 受信側の処理
-    let mut bit_reader = bit_stream.reader();
-
-    // ヘッダ
-    let recv_pixel_count = bit_reader.read_msb(32).unwrap() as usize
-        | (bit_reader.read_msb(32).unwrap() as usize) << 32;
-    let recv_index_width = bit_reader.read_msb(32).unwrap();
-    let recv_length_width = bit_reader.read_msb(32).unwrap();
-    let recv_index_count = bit_reader.read_msb(32).unwrap() as usize;
-    assert_eq!(pixel_count, recv_pixel_count);
-    assert_eq!(index_width, recv_index_width);
-    assert_eq!(length_width, recv_length_width);
-    assert_eq!(index_count, recv_index_count);
-    println!("index_width: {}", recv_index_width);
-    println!("length_width: {}", recv_length_width);
-    println!("index_count: {}", recv_index_count);
-    let mut recv_length_table = vec![0; OPERATORS.len()];
-    for _ in 0..recv_index_count {
-        let index = bit_reader.read_msb(index_width as usize).unwrap();
-        let length = bit_reader.read_msb(length_width as usize).unwrap();
-        recv_length_table[index as usize] = length as usize;
-    }
-    assert_eq!(length_table, recv_length_table);
-    println!("length_table: {:?}", length_table);
-    // データ本体
-    // 最初の2ピクセル
-    let mut colors = vec![
-        Color::bit_read_msb(&mut bit_reader),
-        Color::bit_read_msb(&mut bit_reader),
-    ];
-    let decoded = chuffman::decode(&mut bit_reader, &recv_length_table, pixel_count);
-    for (index, operator_index) in decoded.iter().enumerate() {
-        let color = (OPERATORS[*operator_index])(colors[index + 1], colors[index]);
-        colors.push(color);
-    }
+    let encoded = code::encode(&source_pixels);
+    let decoded = code::decode(&encoded);
 
     let mut output = RgbImage::new(width, height);
-    for (i, color) in colors.iter().enumerate() {
+    for (i, color) in decoded.iter().enumerate() {
         let x = (i as u32) % width;
         let y = (i as u32) / width;
         output.put_pixel(x, y, Rgb([color.r, color.g, color.b]));
     }
 
     output.save("output.png").unwrap();
-
     println!("saved: output.png");
-    // println!("Total operators transmitted: {}", index_list.len());
 }

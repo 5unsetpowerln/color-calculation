@@ -11,6 +11,20 @@ impl BitStream {
     pub fn reader(&self) -> BitReader<'_> {
         BitReader::new(&self.buffer)
     }
+
+    pub fn to_bytes(self) -> Vec<u8> {
+        let mut buffer = self.buffer;
+        buffer.push(self.bit_rem);
+        buffer
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let bit_rem = *bytes.last().unwrap();
+        Self {
+            buffer: bytes[..bytes.len() - 1].to_vec(),
+            bit_rem,
+        }
+    }
 }
 
 impl From<BitWriter> for BitStream {
