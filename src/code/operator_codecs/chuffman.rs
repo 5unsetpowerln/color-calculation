@@ -1,5 +1,5 @@
 use crate::{
-    bitstream::{BitRead, BitStream, BitWrite, BitWriter},
+    bitstream::{BitRead, BitReader, BitStream, BitWrite, BitWriter},
     chuffman,
     code::operator_selectors::OperatorIndexImage,
     color::{
@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-pub fn encode(operator_index_image: &OperatorIndexImage) -> BitStream {
+pub fn encode(writer: &mut BitWriter, operator_index_image: &OperatorIndexImage) {
     let encode_result =
         chuffman::default::encode(&operator_index_image.operator_index_list, OPERATORS.len());
     let encoded = encode_result.encoded;
@@ -28,12 +28,6 @@ pub fn encode(operator_index_image: &OperatorIndexImage) -> BitStream {
     let index_width = (max_operator_index as u32).ilog2() + 1;
     let length_width = (max_operator_index_length as u32).ilog2() + 1;
 
-    let mut writer = BitWriter::new();
-    // ヘッダー
-    // ピクセル数 (8バイト)
-    let pixel_count = operator_index_image.operator_index_list.len() + 2;
-    writer.write_msb((pixel_count & 0xffffffff) as u32, 32);
-    writer.write_msb((pixel_count >> 32) as u32, 32);
     // indexの最大bit数 (4バイト)
     // lengthの最大bit数 (4バイト)
     // lengthテーブルの長さ (4バイト)
@@ -52,21 +46,20 @@ pub fn encode(operator_index_image: &OperatorIndexImage) -> BitStream {
 
     // データ本体
     // 最初の2ピクセル
-    operator_index_image.first_pixel.bit_write_msb(&mut writer);
-    operator_index_image.second_pixel.bit_write_msb(&mut writer);
+    operator_index_image.first_pixel.bit_write_msb(writer);
+    operator_index_image.second_pixel.bit_write_msb(writer);
     for (code, length) in encoded {
         writer.write_msb(code, length);
     }
-
-    writer.to_stream()
 }
 
-pub fn decode(stream: BitStream) -> OperatorIndexImage {
-    let mut reader = stream.reader();
-
+pub fn decode(
+    reader: &mut BitReader,
+    position_table: Vec<(usize, usize)>,
+    width: usize,
+    height: usize,
+) -> OperatorIndexImage {
     // ヘッダ
-    let pixel_count =
-        reader.read_msb(32).unwrap() as usize | (reader.read_msb(32).unwrap() as usize) << 32;
     let index_width = reader.read_msb(32).unwrap();
     let length_width = reader.read_msb(32).unwrap();
     let index_count = reader.read_msb(32).unwrap() as usize;
@@ -79,10 +72,17 @@ pub fn decode(stream: BitStream) -> OperatorIndexImage {
 
     // データ本体
     // 最初の2ピクセル
-    let first_color = Color::bit_read_msb(&mut reader);
-    let second_color = Color::bit_read_msb(&mut reader);
+    let first_color = Color::bit_read_msb(reader);
+    let second_color = Color::bit_read_msb(reader);
     let decoded =
-        chuffman::default::decode(&mut reader, &operator_index_length_table, pixel_count - 2);
+        chuffman::default::decode(reader, &operator_index_length_table, position_table.len());
 
-    OperatorIndexImage::new(first_color, second_color, decoded)
+    OperatorIndexImage::new(
+        first_color,
+        second_color,
+        decoded,
+        position_table,
+        width,
+        height,
+    )
 }

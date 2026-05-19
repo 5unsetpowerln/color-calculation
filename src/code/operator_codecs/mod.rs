@@ -1,4 +1,4 @@
-use crate::bitstream::BitStream;
+use crate::bitstream::{BitReader, BitStream, BitWriter};
 
 use super::operator_selectors::OperatorIndexImage;
 
@@ -6,8 +6,13 @@ mod chuffman;
 mod chuffman_repeat_compact;
 mod nothing;
 
-type Encoder = fn(operator_index_image: &OperatorIndexImage) -> BitStream;
-type Decoder = fn(stream: BitStream) -> OperatorIndexImage;
+type Encoder = fn(writer: &mut BitWriter, operator_index_image: &OperatorIndexImage);
+type Decoder = fn(
+    reader: &mut BitReader,
+    position_table: Vec<(usize, usize)>,
+    width: usize,
+    height: usize,
+) -> OperatorIndexImage;
 
 pub struct OperatorCodec {
     pub encode: Encoder,

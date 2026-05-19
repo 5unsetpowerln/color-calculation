@@ -22,7 +22,7 @@ fn main() {
         return;
     }
 
-    let encoded = code::encode(&source_pixels);
+    let encoded = code::encode(&source_pixels, width as usize, height as usize);
 
     let original_size = source_pixels.len() * 3;
     let compressed_size = encoded.len();
@@ -31,7 +31,9 @@ fn main() {
     println!("encoded length: {}", encoded.len());
     println!("compression ratio: {:.2}%", ratio);
 
-    let decoded = code::decode(&encoded);
+    let (decoded, width, height) = code::decode(&encoded);
+    let width = width as u32;
+    let height = height as u32;
 
     let mut output = RgbImage::new(width, height);
     for (i, color) in decoded.iter().enumerate() {

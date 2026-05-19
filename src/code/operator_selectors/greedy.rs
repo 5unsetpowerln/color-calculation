@@ -5,9 +5,10 @@ use crate::color::{
 
 use super::OperatorIndexImage;
 
-pub fn encode(source_pixels: &[Color]) -> OperatorIndexImage {
+pub fn encode(source_pixels: &[Color], width: usize, height: usize) -> OperatorIndexImage {
     let mut virt_results = Vec::new();
     let mut index_list = Vec::new();
+    let mut position_table = Vec::new();
 
     // とりあえず
     assert!(source_pixels.len() >= 2);
@@ -17,6 +18,9 @@ pub fn encode(source_pixels: &[Color]) -> OperatorIndexImage {
 
     for index in 2..source_pixels.len() {
         let target = source_pixels[index];
+        let y = index / width;
+        let x = index % width;
+        position_table.push((x, y));
 
         let prev_0 = virt_results[index - 2];
         let prev_1 = virt_results[index - 1];
@@ -40,7 +44,14 @@ pub fn encode(source_pixels: &[Color]) -> OperatorIndexImage {
         virt_results.push(best_color);
     }
 
-    OperatorIndexImage::new(source_pixels[0], source_pixels[1], index_list)
+    OperatorIndexImage::new(
+        source_pixels[0],
+        source_pixels[1],
+        index_list,
+        position_table,
+        width,
+        height,
+    )
 }
 
 pub fn decode(operator_index_image: &OperatorIndexImage) -> Vec<Color> {
@@ -55,4 +66,14 @@ pub fn decode(operator_index_image: &OperatorIndexImage) -> Vec<Color> {
     }
 
     colors
+}
+
+pub fn position_table_generator(width: usize, height: usize) -> Vec<(usize, usize)> {
+    let mut table = Vec::new();
+
+    for i in 2..(width * height) {
+        table.push(((i % width), (i / width)));
+    }
+
+    table
 }
