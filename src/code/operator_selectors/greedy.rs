@@ -3,42 +3,9 @@ use crate::color::{
     operator::{OPERATORS, Operator},
 };
 
-pub struct OperatorIndexImage {
-    pub first_pixel: Color,
-    pub second_pixel: Color,
-    pub operator_index_list: Vec<usize>,
-}
+use super::OperatorIndexImage;
 
-impl OperatorIndexImage {
-    pub fn new(first_pixel: Color, second_pixel: Color, operator_index_list: Vec<usize>) -> Self {
-        Self {
-            first_pixel,
-            second_pixel,
-            operator_index_list,
-        }
-    }
-}
-
-type Encoder = fn(&[Color]) -> OperatorIndexImage;
-type Decoder = fn(&OperatorIndexImage) -> Vec<Color>;
-
-pub struct OperatorSelector {
-    pub encode: Encoder,
-    pub decode: Decoder,
-}
-
-impl OperatorSelector {
-    pub const fn new(encoder: Encoder, decoder: Decoder) -> Self {
-        Self {
-            encode: encoder,
-            decode: decoder,
-        }
-    }
-}
-
-pub const BEST_EFFORT: OperatorSelector = OperatorSelector::new(best_effort, decode);
-
-pub fn best_effort(source_pixels: &[Color]) -> OperatorIndexImage {
+pub fn encode(source_pixels: &[Color]) -> OperatorIndexImage {
     let mut virt_results = Vec::new();
     let mut index_list = Vec::new();
 
